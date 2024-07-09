@@ -11,20 +11,12 @@ from numba import jit, types
 import numpy.random as random
 from numba.typed import List
 from scipy.spatial import KDTree
-from scipy.interpolate import NearestNDInterpolator
+from scipy.interpolate import NearestNDInterpolator, LinearNDInterpolator
 
 # CHM Data
 chm_data = rio.open_rasterio('data/chm.tif')
-print(chm_data.x, chm_data.y)
 chm = chm_data.data[0]
-
 xx, yy = np.meshgrid(chm_data.x, chm_data.y)
-
-print(xx.shape)
-print(yy.shape)
-print(chm.shape)
-
-quit()
 
 # Tree inventory
 data = pd.read_csv('data/tree_inventory.csv')
@@ -35,53 +27,16 @@ tree_inventory["Y"] = tree_inventory.geometry.y
 tree_inventory = tree_inventory.dropna()
 x = tree_inventory['X'].to_numpy()
 y = tree_inventory['Y'].to_numpy()
-x -= x.min()
-y -= y.min()
 coords = np.c_[x, y]
 
-nbrs = NearestNeighbors(n_neighbors=10, algorithm='ball_tree').fit(coords)
+nbrs = NearestNeighbors(n_neighbors=2, algorithm='ball_tree').fit(coords)
 distances, indices = nbrs.kneighbors(coords)
 distances = distances[:,1:]
 
-mu = distances.mean(axis=1)
-sigma = distances.std(axis=1)
-
-#indexes = mu < 20.
-#mu = mu[indexes]
-#sigma = sigma[indexes]
-#coords = coords[indexes]
-
-mu_interp = NearestNDInterpolator(coords, mu)
-
-# Mark the seed points
-n0 = chm_data.shape[0]
-n1 = chm_data.shape[1]
-
-# Coordinate grid
-xs = np.arange(0., n0, 1.)
-ys = np.arange(0., n1, 1.)
-xx, yy = np.meshgrid(ys, xs)
-
-mu = mu_interp(xx, yy)
-
-plt.imshow(mu)
-plt.colorbar()
-plt.show()
-
-quit()
-
-plt.scatter(coords[:,0], coords[:,1], c=mu)
-plt.colorbar()
-plt.show()
-quit()
-
-plt.hist(d, bins=100)
-plt.show()
-quit()
-#spacing = distances[:,1:].mean(axis=1)
-
-
-
+radius = distances.min(axis=1)
+radius_interp = NearestNDInterpolator(coords, radius)
+radius = radius_interp(xx, yy)
+radius = gaussian_filter(radius, sigma=5.)
 
 def get_seed_points(mask):
     labeled_mask, num_features = label(mask)
@@ -96,7 +51,7 @@ def get_seed_points(mask):
     return component_points
 
 
-def sample_trees(chm_data):
+def sample_trees(chm_data, radius):
 
 
     # Slightly smooth the chm data?
@@ -123,11 +78,8 @@ def sample_trees(chm_data):
     ys = np.arange(0., n1, 1.)
     xx, yy = np.meshgrid(ys, xs)
 
-    # Minimum radius for tree placement
-    radius = 1.5*np.ones((n0, n1))
-
     @jit(nopython=True)
-    def disk_sample(xx, yy, marked, mask, active, radius, dx=1., K=40):
+    def disk_sample(xx, yy, marked, mask, active, radius, dx=1., K=25):
 
         while len(active) > 0:
             # Randomly select an active point
@@ -212,8 +164,9 @@ def sample_trees(chm_data):
     synthetic = np.zeros_like(chm_data)
     indexes = marked > 0.
     synthetic[indexes] = chm_data[indexes]
+    print(marked.sum())
 
-    synthetic = gaussian_filter(synthetic, sigma=1)
+    synthetic = gaussian_filter(synthetic, sigma=1.)
 
     plt.subplot(3,1,2)
     plt.imshow(chm_data)
@@ -226,4 +179,4 @@ def sample_trees(chm_data):
 
     plt.show()
 
-sample_trees(chm_data)
+sample_trees(chm, radius)
