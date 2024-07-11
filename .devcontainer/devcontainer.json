@@ -41,6 +41,6 @@
 	},
 		
 
-	"postCreateCommand": "pip3 install git+https://github.com/silvxlabs/fastfuels-core && pip3 install torch torchvision torchaudio pandas geopandas rioxarray xarray rasterio numba warp-lang ipykernel scipy matplotlib requests numpy tqdm shapely dask[dataframe] scikit-learn taichi usd-core poissonDiskSampling"
+	"postCreateCommand": "pip3 install git+https://github.com/silvxlabs/fastfuels-core && pip3 install torch torchvision torchaudio pandas geopandas rioxarray xarray rasterio numba warp-lang ipykernel scipy matplotlib requests numpy tqdm shapely dask[dataframe] scikit-learn taichi usd-core scikit-image"
 	
 }

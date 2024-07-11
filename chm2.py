@@ -12,6 +12,7 @@ import numpy.random as random
 from numba.typed import List
 from scipy.spatial import KDTree
 from scipy.interpolate import NearestNDInterpolator, LinearNDInterpolator
+from scipy.ndimage import distance_transform_edt
 
 # CHM Data
 chm_data = rio.open_rasterio('data/chm.tif')
@@ -49,6 +50,25 @@ def get_seed_points(mask):
             component_points.append((coords[rand_index][0], coords[rand_index][1]))  
 
     return component_points
+
+# Try different seed points
+
+from skimage.feature import peak_local_max
+
+thing = peak_local_max(chm, min_distance=5, threshold_abs = 1.)
+
+mask = np.zeros_like(chm)
+mask[thing[:,0], thing[:,1]] = 1.
+print(thing.shape) 
+
+d = distance_transform_edt(mask==0)
+print(d.shape)
+plt.imshow(d)
+plt.show()
+
+
+quit()
+
 
 
 def sample_trees(chm_data, radius):
