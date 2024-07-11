@@ -1,20 +1,60 @@
+import pandas as pd
+import geopandas as gpd
 import numpy as np
+from sklearn.neighbors import NearestNeighbors
 import matplotlib.pyplot as plt
+import rioxarray as rio
+from scipy.ndimage import gaussian_filter
 from numba import jit
-from scipy.special import beta
+import numpy.random as random
+from scipy.interpolate import NearestNDInterpolator
+from scipy.ndimage import distance_transform_edt
+from skimage.feature import peak_local_max
 import math
+from scipy.special import beta
 
-chm = np.zeros((100, 100))
-chm[10::20,10::20] = 1.
-tree_indexes = np.argwhere(chm > 0.)
+# CHM Data
+chm_data = rio.open_rasterio('data/chm.tif')
+chm = chm_data.data[0]
+xx, yy = np.meshgrid(chm_data.x, chm_data.y)
+
+plt.imshow(chm)
+plt.show()
+quit()
+
+# Tree inventory
+data = pd.read_csv('data/tree_inventory.csv')
+tree_inventory = gpd.GeoDataFrame(data, geometry=gpd.points_from_xy(data["X"], data["Y"]), crs="EPSG:4326")
+tree_inventory = tree_inventory.to_crs(3857)
+tree_inventory["X"] = tree_inventory.geometry.x
+tree_inventory["Y"] = tree_inventory.geometry.y
+tree_inventory = tree_inventory.dropna()
+x = tree_inventory['X'].to_numpy()
+y = tree_inventory['Y'].to_numpy()
+coords = np.c_[x, y]
+
+nbrs = NearestNeighbors(n_neighbors=2, algorithm='ball_tree').fit(coords)
+distances, indices = nbrs.kneighbors(coords)
+distances = distances[:,1:]
+
+radius = distances.min(axis=1)
+radius_interp = NearestNDInterpolator(coords, radius)
+radius = radius_interp(xx, yy)
+radius = gaussian_filter(radius, sigma=5.)
+
+
+tree_indexes = peak_local_max(chm, min_distance=5, threshold_abs = 1.)
+pad = 20
+tree_indexes += int(pad/2)
+synthetic_chm = np.zeros((chm.shape[0] + pad, chm.shape[1] + pad))
+#synthetic_chm[tree_indexes[:,0], tree_indexes[:,1]] = 1.
+
 n = len(tree_indexes)
-chm *= 0.
-
 a = np.ones(n) * 1.1821
 b = np.ones(n) * 1.4627
 c = np.ones(n) * 0.1528
 height = np.ones(n) * 30.
-crown_length = np.ones(n) * 25.
+crown_length = np.ones(n) * 30.
 beta0 = beta(a, b)
 tree_params = np.column_stack([a, b, c, height, crown_length, beta0])
 
@@ -89,7 +129,8 @@ def get_tree_height(r, a, b, c, height, crown_length, beta0, dx=1.):
 
     return z0
 
-r = get_synthetic_chm(chm, tree_indexes, tree_params)
+
+r = get_synthetic_chm(synthetic_chm, tree_indexes, tree_params)
 plt.imshow(r)
 plt.colorbar()
 plt.show()

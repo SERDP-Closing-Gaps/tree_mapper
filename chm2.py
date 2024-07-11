@@ -59,7 +59,9 @@ thing = peak_local_max(chm, min_distance=5, threshold_abs = 1.)
 
 mask = np.zeros_like(chm)
 mask[thing[:,0], thing[:,1]] = 1.
-print(thing.shape) 
+plt.imshow(mask)
+plt.show()
+quit()
 
 d = distance_transform_edt(mask==0)
 print(d.shape)
