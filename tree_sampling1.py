@@ -71,7 +71,7 @@ def sample_trees(chm_data, radius):
         # Randomly generate a new point nearby point i,j
         px = i*dx 
         py = j*dx
-        r = radius[i,j]*(random.random() + 1.)
+        r = 2.*dx + 2.*radius[i,j]*random.random()
         theta =  2. * np.pi * random.random()
         px1 = px + r*np.cos(theta)
         py1 = py + r*np.sin(theta)
@@ -82,12 +82,12 @@ def sample_trees(chm_data, radius):
 
 
     @jit(nopython=True)
-    def is_valid(xx, yy, marked, mask, i, j, radius, dx):
+    def is_valid(xx, yy, marked, chm, i, j, radius, dx):
 
         # Check to make sure point is in bounds 
         n0 = marked.shape[0]
         n1 = marked.shape[1]
-        valid = (1 <= i and i <= n0-1 and 1 <= j and j <= n1-1 and mask[i,j] > 0.)
+        valid = (1 <= i and i <= n0-1 and 1 <= j and j <= n1-1 and chm[i,j] > 0.)
 
         if not valid:
             return valid
