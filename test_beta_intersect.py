@@ -1,34 +1,38 @@
 import numpy as np
 import numpy.random as random
 import matplotlib.pyplot as plt
-from numba import vectorize, float64, jit
+from numba import vectorize, float64, jit, njit
 
-@vectorize([float64(float64, float64, float64, float64, float64)])
-def get_radius(z, crown_base, crown_height, dbh, trait_score):
-    height = crown_base + crown_height
 
-    if z < crown_base:
-        return 0.0
-    
-    if z > height:
+a = 1.1821
+b = 1.4627
+c = 0.1528
+
+@vectorize([float64(float64, float64, float64)])
+def get_radius(z, crown_base, crown_length):
+    height = crown_base + crown_length
+
+    z = (z-crown_base) / height
+
+    if z <= 0.:
         return 0.
-    
-    C0_R0 = 0.503
-    C1_R0 = 3.126
-    C0_R40 = 0.5
-    C1_R40 = 10.0
-    C0_B = 0.196
-    C1_B = 0.511
+    if z >= 1.:
+        return 0.
 
-    r0j = (1 - trait_score) * C0_R0 + trait_score * C1_R0
-    r40j = (1 - trait_score) * C0_R40 + trait_score * C1_R40
-    max_crown_radius = r0j + (r40j - r0j) * (dbh / 40.0)
-    shape_parameter = (1 - trait_score) * C0_B + trait_score * C1_B
-
-    return max_crown_radius * ((height - z) / height)**shape_parameter
+    r =  crown_length * c * z**(a - 1.) * (1. - z)**(b - 1)
+    return r
 
 
-@jit(nopython=True)
+z = np.linspace(0.,20., 50)
+
+r = get_radius(z, 5., 10.)
+plt.plot(z, r)
+plt.show()
+
+quit()
+
+
+@njit(nopython=True)
 def intersects(distance, props0, props1):
 
     crown_base0, crown_length0, dbh0, trait_score0 = props0 
@@ -42,7 +46,7 @@ def intersects(distance, props0, props1):
     return r0_max + r1_max >= distance
 
 
-@jit(nopython=True)
+@njit(nopython=True)
 def propose_point(min_radius, max_radius, dx=1.):
 
     r = min_radius + random.random()*(max_radius - min_radius)
@@ -54,7 +58,7 @@ def propose_point(min_radius, max_radius, dx=1.):
 
     return (di, dj)
 
-@jit(nopython=True)
+@njit(nopython=True)
 def propose_overstory_tree(chm, i, j):
 
     height = chm[i,j]
@@ -67,10 +71,10 @@ def propose_overstory_tree(chm, i, j):
     return (crown_base, crown_length, dbh, trait_score)
 
 
-@jit(nopython=True)
+@njit(nopython=True)
 def propose_understory_tree(chm, i, j):
-    height = random.random()*10. + 1.
-    crown_ratio = 0.4*random.random() + 0.5
+    height = 20. + random.random()*30.
+    crown_ratio = 0.3*random.random() + 0.6
     crown_base = height - crown_ratio*height
     crown_length = height - crown_base
     dbh = 11. 
@@ -78,7 +82,7 @@ def propose_understory_tree(chm, i, j):
 
     return (crown_base, crown_length, dbh, trait_score)
 
-@jit(nopython=True)
+@njit
 def is_valid(chm, tree_grid, tree_props, proposed_tree_props, i, j, radius, dx):
     # Check to make sure point is in bounds 
     n0 = tree_grid.shape[0]
@@ -90,7 +94,7 @@ def is_valid(chm, tree_grid, tree_props, proposed_tree_props, i, j, radius, dx):
 
     # Check a local window around point and see if any points are too close to proposed sample
     r = radius[i, j]
-    w = int(r / dx) + 1
+    w = int(3*r / dx) + 1
     for i1 in range(max(0,i-w), min(n0, i+w)):
         for j1 in range(max(0,j-w), min(n1, j+w)):
             if tree_grid[i1,j1] > 0:
@@ -101,7 +105,6 @@ def is_valid(chm, tree_grid, tree_props, proposed_tree_props, i, j, radius, dx):
                 if dist < r:
                     return False
                 
-          
                 collision = intersects(dist, props, proposed_tree_props)
                 if collision:
                     return False
@@ -110,7 +113,7 @@ def is_valid(chm, tree_grid, tree_props, proposed_tree_props, i, j, radius, dx):
 
 
 
-@jit(nopython=True)
+@njit
 def disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, dx=1., K=25, propose_tree = propose_overstory_tree):
     
     while len(candidate_trees) > 0:
@@ -120,19 +123,18 @@ def disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, dx=1., K=25
         found = False
 
         for k in range(K):
-            di, dj = propose_point(radius[i,j], 2.*radius[i,j])
+            di, dj = propose_point(radius[i,j], 5*radius[i,j])
             i1 = i + di 
             j1 = j + dj
             proposed_tree_props = propose_tree(chm, i1, j1)
             valid = is_valid(chm, tree_grid, tree_props, proposed_tree_props, i1, j1, radius, dx)
-            #print(k, valid)
 
             if valid:
                 candidate_trees.append((i1, j1))
                 tree_props.append(proposed_tree_props)
                 tree_grid[i1, j1] = len(tree_props)
                 found = True
-                break
+                break 
 
         if not found:
             i, j = candidate_trees.pop(index)
@@ -140,16 +142,36 @@ def disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, dx=1., K=25
     return tree_grid, tree_props
 
 
-n = 401
+n = 4001
 # crown base, crown length, dbh, species
 tree_props = [(5., 10., 11., 0.)]
 tree_grid = np.zeros((n, n), dtype=np.int32)
-chm = 15.*np.ones((n, n), dtype=np.float32)
-radius = 10.*np.ones((n, n))
-candidate_trees = [(200, 200)]
-tree_grid[200,200] = 1
+chm = 10.*np.ones((n, n), dtype=np.float32)
+radius = 2.*np.ones((n, n))
+candidate_trees = [(2000, 2000)]
+tree_grid[2000,2000] = 1
 
-tree_grid, tree_props = disk_sample(tree_grid, chm, radius, candidate_trees, tree_props)
+tree_grid, tree_props = disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, propose_tree = propose_understory_tree)
+
+tree_props = np.array(tree_props)
+height = tree_props[:,0] + tree_props[:,1]
+
+heights = np.zeros_like(tree_grid)
+
+indexes = np.argwhere(tree_grid > 0)
+prop_indexes = tree_grid[indexes[:,0], indexes[:,1]] - 1
+heights[indexes[:,0], indexes[:,1]] = height[prop_indexes]
+
+plt.imshow(heights)
+plt.colorbar()
+plt.show()
+
+
+
+#heights[tree_grid > 0] =  height[t]
+
+#print(height)
+quit()
 
 indexes = np.argwhere(tree_grid > 0)
 candidate_trees = list(zip(indexes[:,0], indexes[:,1]))
