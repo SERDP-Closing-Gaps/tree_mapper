@@ -2,14 +2,16 @@ import numpy as np
 import numpy.random as random
 import matplotlib.pyplot as plt
 from numba import vectorize, float64, jit, njit
-
+import math
+import plotly.graph_objects as go
 
 a = 1.1821
 b = 1.4627
 c = 0.1528
 
 @vectorize([float64(float64, float64, float64)])
-def get_radius(z, crown_base, crown_length):
+def get_radius(z,  crown_base, crown_length):
+
     height = crown_base + crown_length
 
     z = (z-crown_base) / height
@@ -19,31 +21,32 @@ def get_radius(z, crown_base, crown_length):
     if z >= 1.:
         return 0.
 
-    r =  crown_length * c * z**(a - 1.) * (1. - z)**(b - 1)
+    r =  2.5*crown_length * c * z**(a - 1.) * (1. - z)**(b - 1)
     return r
-
-
-z = np.linspace(0.,20., 50)
-
-r = get_radius(z, 5., 10.)
-plt.plot(z, r)
-plt.show()
-
-quit()
 
 
 @njit(nopython=True)
 def intersects(distance, props0, props1):
+    crown_base0, crown_length0 = props0 
+    crown_base1, crown_length1 = props1
 
-    crown_base0, crown_length0, dbh0, trait_score0 = props0 
-    crown_base1, crown_length1, dbh1, trait_score1 = props1
+    height0 = crown_base0 + crown_length0
+    height1 = crown_base1 + crown_length1 
+    overlap_min = max(crown_base0, crown_base1)
+    overlap_max = min(height0, height1)
 
-    cb_max = max(crown_base0, crown_base1)
-
-    r0_max = get_radius(cb_max, crown_base0, crown_length0, dbh0, trait_score0)
-    r1_max = get_radius(cb_max, crown_base1, crown_length1, dbh1, trait_score1)
-
-    return r0_max + r1_max >= distance
+    if overlap_min < overlap_max:
+        z = overlap_min 
+        
+        while z <= overlap_max:
+            r0 = get_radius(z, crown_base0, crown_length0)
+            r1 = get_radius(z, crown_base1, crown_length1)    
+            if r0 + r1 > distance:
+                return True 
+            
+            z += max(min(1., overlap_max-z), 1e-3)
+    
+    return False
 
 
 @njit(nopython=True)
@@ -62,25 +65,21 @@ def propose_point(min_radius, max_radius, dx=1.):
 def propose_overstory_tree(chm, i, j):
 
     height = chm[i,j]
-    crown_ratio = 0.4*random.random() + 0.5
+    crown_ratio = 0.6*random.random() + 0.3
     crown_base = height - crown_ratio*height
     crown_length = height - crown_base
-    dbh = 11. 
-    trait_score = 0.53
 
-    return (crown_base, crown_length, dbh, trait_score)
+    return (crown_base, crown_length)
 
 
 @njit(nopython=True)
 def propose_understory_tree(chm, i, j):
-    height = 20. + random.random()*30.
+    height = 1. + random.random()*20.
     crown_ratio = 0.3*random.random() + 0.6
     crown_base = height - crown_ratio*height
     crown_length = height - crown_base
-    dbh = 11. 
-    trait_score = 0.53
 
-    return (crown_base, crown_length, dbh, trait_score)
+    return (crown_base, crown_length)
 
 @njit
 def is_valid(chm, tree_grid, tree_props, proposed_tree_props, i, j, radius, dx):
@@ -94,7 +93,7 @@ def is_valid(chm, tree_grid, tree_props, proposed_tree_props, i, j, radius, dx):
 
     # Check a local window around point and see if any points are too close to proposed sample
     r = radius[i, j]
-    w = int(3*r / dx) + 1
+    w = int(4*r / dx) + 1
     for i1 in range(max(0,i-w), min(n0, i+w)):
         for j1 in range(max(0,j-w), min(n1, j+w)):
             if tree_grid[i1,j1] > 0:
@@ -123,7 +122,7 @@ def disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, dx=1., K=25
         found = False
 
         for k in range(K):
-            di, dj = propose_point(radius[i,j], 5*radius[i,j])
+            di, dj = propose_point(radius[i,j], 4*radius[i,j])
             i1 = i + di 
             j1 = j + dj
             proposed_tree_props = propose_tree(chm, i1, j1)
@@ -142,14 +141,14 @@ def disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, dx=1., K=25
     return tree_grid, tree_props
 
 
-n = 4001
+n = 41
 # crown base, crown length, dbh, species
-tree_props = [(5., 10., 11., 0.)]
+tree_props = [(5., 15.)]
 tree_grid = np.zeros((n, n), dtype=np.int32)
 chm = 10.*np.ones((n, n), dtype=np.float32)
 radius = 2.*np.ones((n, n))
-candidate_trees = [(2000, 2000)]
-tree_grid[2000,2000] = 1
+candidate_trees = [(20, 20)]
+tree_grid[10, 10] = 1
 
 tree_grid, tree_props = disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, propose_tree = propose_understory_tree)
 
@@ -160,30 +159,50 @@ heights = np.zeros_like(tree_grid)
 
 indexes = np.argwhere(tree_grid > 0)
 prop_indexes = tree_grid[indexes[:,0], indexes[:,1]] - 1
-heights[indexes[:,0], indexes[:,1]] = height[prop_indexes]
+#heights[indexes[:,0], indexes[:,1]] = height[prop_indexes]
 
-plt.imshow(heights)
-plt.colorbar()
-plt.show()
+tree_props = tree_props[prop_indexes]
 
 
-
-#heights[tree_grid > 0] =  height[t]
-
-#print(height)
-quit()
-
-indexes = np.argwhere(tree_grid > 0)
-candidate_trees = list(zip(indexes[:,0], indexes[:,1]))
-radius = 2.*np.ones((n, n))
+### PLOT
 
 
-tree_grid, tree_props = disk_sample(tree_grid, chm, radius, candidate_trees, tree_props, propose_tree = propose_understory_tree)
+z_points = 31
+# Define the number of angular points for the radial symmetry
+theta_points = 40
+# Generate the z values
+z = np.linspace(0, 30., z_points)
+# Generate the theta values
+theta = np.linspace(0, 2 * np.pi, theta_points)
+# Create a meshgrid for theta and z
+theta, z = np.meshgrid(theta, z)
 
-#print(len(candidate_trees))
-#print(len(tree_props))
-
-plt.imshow(tree_grid)
-plt.show()
+# Create the plot
+fig = go.Figure()
 
 
+for j in range(len(indexes)):
+
+    props = tree_props[j]
+
+    crown_base = props[0]
+    crown_length = props[1]
+
+    radius = get_radius(z, crown_base, crown_length)
+    x = radius * np.cos(theta)
+    y = radius * np.sin(theta)
+
+    fig.add_trace(go.Surface(x=x + float(indexes[j,0]), y=y+float(indexes[j,1]), z=z, opacity=0.5))
+
+
+
+fig.update_layout(
+    scene=dict(
+        xaxis=dict(title='X'),
+        yaxis=dict(title='Y'),
+        zaxis=dict(title='Z'),
+        aspectmode='cube'  # Set the aspect ratio mode to 'cube'
+    ),
+    title='Radially Symmetric Objects'
+)
+fig.show()

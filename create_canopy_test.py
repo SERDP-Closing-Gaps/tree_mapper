@@ -16,13 +16,10 @@ chm_data = rio.open_rasterio('data/chm.tif')
 chm = chm_data.data[0]
 xx, yy = np.meshgrid(chm_data.x, chm_data.y)
 
-# Tree inventory
-data = pd.read_csv('data/tree_inventory.csv')
-tree_inventory = gpd.GeoDataFrame(data, geometry=gpd.points_from_xy(data["X"], data["Y"]), crs="EPSG:4326")
-tree_inventory = tree_inventory.to_crs(3857)
-tree_inventory["X"] = tree_inventory.geometry.x
-tree_inventory["Y"] = tree_inventory.geometry.y
-tree_inventory = tree_inventory.dropna()
+tree_inventory = gpd.read_file('data/tree_inventory.geojson')
+print(tree_inventory)
+quit()
+
 x = tree_inventory['X'].to_numpy()
 y = tree_inventory['Y'].to_numpy()
 coords = np.c_[x, y]
